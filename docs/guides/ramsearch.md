@@ -41,13 +41,14 @@ If you do not find an adequate option, increase the Max level or Max offset opti
 
 ## Pointer Scanning using Cheat Engine
 
-With some games, libTAS’s Ram Search may fail to adequately find a stable pointer for the memory address you are looking for, such as if there may be too many offsets needed to find a fixed base address, or if the base address may use a library instead of the game binary. For this, it can help to use Cheat Engine ([Download Page](https://www.cheatengine.org/downloads.php))) with its more robust debugging tools. For most games, this would be my recommended method for finding memory addresses.
+With some games, libTAS’s Ram Search may fail to adequately find a stable pointer for the memory address you are looking for, such as if there may be too many offsets needed to find a fixed base address, or if the base address may use a library instead of the game binary. For this, it can help to use Cheat Engine ([Download Page](https://www.cheatengine.org/downloads.php)) with its more robust debugging tools. For most games, this would be my recommended method for finding memory addresses.
 
 ### Prerequisites
 
 Because Cheat Engine is a Windows debugging tool, we will need to account for a few things to allow us to debug Linux programs. Importantly, regardless of our workflow, we will need CE Server:
 * [Direct Download from above Download Page](https://www.cheatengine.org/download/ceserver_linux_x86_64.zip)
 * [Github Repo](https://github.com/cheat-engine/cheat-engine/tree/master/Cheat%20Engine/ceserver)
+
 This program will allow Cheat Engine to listen to the memory of a Linux program. The other half of this setup is Cheat Engine itself, which will depend on how your libTAS workflow has been set up.
 
 If you are running libTAS on a native installation of Linux, the recommended option is to run Cheat Engine under [Wine](https://www.winehq.org/).
