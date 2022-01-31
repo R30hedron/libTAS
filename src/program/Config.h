@@ -83,6 +83,9 @@ public:
     /* Directory holding savestates and savestate movies */
     std::string savestatedir;
 
+    /* Directory holding files storing ram search results */
+    std::string ramsearchdir;
+
     /* Flags when end of movie */
     enum MovieEnd {
         MOVIEEND_READ = 0,
@@ -105,6 +108,9 @@ public:
 
     /* List of recent existing gamepaths */
     std::list<std::string> recent_gamepaths;
+
+    /* List of recent command-line options */
+    std::list<std::string> recent_args;
 
     /* Do we restart the game when it exits? */
     bool auto_restart = false;
@@ -129,6 +135,17 @@ public:
 
     /* Load a game-specific config from the config file */
     void load(const std::string& gamepath);
+
+    enum Debugger {
+        DEBUGGER_GDB = 0,
+        DEBUGGER_LLDB = 1,
+    };
+
+#ifdef __unix__
+    int debugger = DEBUGGER_GDB;
+#elif defined(__APPLE__) && defined(__MACH__)
+    int debugger = DEBUGGER_LLDB;
+#endif
 
 private:
     QString iniPath(const std::string& gamepath) const;

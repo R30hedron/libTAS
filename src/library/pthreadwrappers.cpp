@@ -56,6 +56,7 @@ DEFINE_ORIG_POINTER(pthread_testcancel)
 DEFINE_ORIG_POINTER(sem_wait)
 DEFINE_ORIG_POINTER(sem_timedwait)
 DEFINE_ORIG_POINTER(sem_trywait)
+DEFINE_ORIG_POINTER(sem_post)
 DEFINE_ORIG_POINTER(pthread_attr_setstack)
 DEFINE_ORIG_POINTER(pthread_condattr_setclock)
 DEFINE_ORIG_POINTER(pthread_condattr_getclock)
@@ -120,7 +121,7 @@ static void *pthread_start(void *arg)
             ThreadManager::update(thread);
             ThreadSync::decrementUninitializedThreadCount();
 
-            debuglogstdio(LCF_THREAD, "Beginning of thread code %p", thread->routine_id);
+            debuglogstdio(LCF_THREAD, "Beginning of thread code %td", thread->routine_id);
 
             /* We need to handle the case where the thread calls pthread_exit to
              * terminate. Because we recycle thread routines, we must continue
@@ -136,41 +137,41 @@ static void *pthread_start(void *arg)
 
             debuglogstdio(LCF_THREAD, "End of thread code");
 
+            if (shared_config.recycle_threads) {
 #ifdef __linux__
-            /* Because we recycle this thread, we must unset all TLS values
-             * and call destructors ourselves.  First, we unset the values
-             * from the older, pthread_key_create()-based implementation
-             * of TLS.
-             */
-            clear_pthread_keys();
-            /* Next we deal with the newer linker-based TLS
-             * implementation accessed via thread_local in C11/C++11
-             * and later.  For that, first we need to run any C++
-             * destructors for values in thread-local storage, using
-             * an internal libc function.
-             */
-            __call_tls_dtors();
-            /* Next, we clean up any libc state in thread-local storage,
-             * using an internal libc function.
-             */
-            __libc_thread_freeres();
-            /* Finally, we reset all thread-local storage back to its
-             * initial value, using a third internal libc function.
-             * This is architecture-specific; it works on 32-bit and
-             * 64-bit x86, but not on all Linux architectures.  See
-             * above, where this function is declared.
-             */
-            _dl_allocate_tls_init(thread->pthread_id);
-            /* This has just reset any libTAS thread-local storage
-             * for this thread.  Most libTAS TLS is either transient
-             * anyway, or irrelevant while the thread is waiting
-             * to be recycled.  But one value is important:
-             * we need to fix ThreadManager::current_thread .
-             */
+                /* Because we recycle this thread, we must unset all TLS values
+                 * and call destructors ourselves.  First, we unset the values
+                 * from the older, pthread_key_create()-based implementation
+                 * of TLS.
+                 */
+                clear_pthread_keys();
+                /* Next we deal with the newer linker-based TLS
+                 * implementation accessed via thread_local in C11/C++11
+                 * and later.  For that, first we need to run any C++
+                 * destructors for values in thread-local storage, using
+                 * an internal libc function.
+                 */
+                __call_tls_dtors();
+                /* Next, we clean up any libc state in thread-local storage,
+                 * using an internal libc function.
+                 */
+                __libc_thread_freeres();
+                /* Finally, we reset all thread-local storage back to its
+                 * initial value, using a third internal libc function.
+                 * This is architecture-specific; it works on 32-bit and
+                 * 64-bit x86, but not on all Linux architectures.  See
+                 * above, where this function is declared.
+                 */
+                _dl_allocate_tls_init(thread->pthread_id);
+                /* This has just reset any libTAS thread-local storage
+                 * for this thread.  Most libTAS TLS is either transient
+                 * anyway, or irrelevant while the thread is waiting
+                 * to be recycled.  But one value is important:
+                 * we need to fix ThreadManager::current_thread .
+                 */
+                ThreadManager::setCurrentThread(thread);
 #endif
-
-            ThreadManager::setCurrentThread(thread);
-
+            }
             ThreadManager::threadExit(ret);
 
             /* Thread is now in zombie state until it is detached */
@@ -637,15 +638,27 @@ static std::map<pthread_cond_t*, clockid_t>& getCondClock() {
     return orig::pthread_testcancel();
 }
 
-// /* Override */ int sem_wait (sem_t *sem)
-// {
-//     LINK_NAMESPACE(sem_wait, "pthread");
-//     if (GlobalState::isNative())
-//         return orig::sem_wait(sem);
-//
-//     debuglogstdio(LCF_THREAD | LCF_WAIT, "sem_wait call with %p", sem);
-//     return orig::sem_wait(sem);
-// }
+/* Override */ int sem_wait (sem_t *sem)
+{
+    LINK_NAMESPACE_VERSION(sem_wait, "pthread", "GLIBC_2.1");
+    if (GlobalState::isNative())
+        return orig::sem_wait(sem);
+
+    ThreadInfo* thread = ThreadManager::getCurrentThread();
+    bool isWaitThread = GameHacks::isUnityLoadingThread(thread->routine_id);
+
+    debuglogstdio(LCF_WAIT, "sem_wait call with %p", sem);
+    if (isWaitThread) {
+        ThreadSync::detSignal(true);
+
+        int ret = orig::sem_wait(sem);
+
+        ThreadSync::detInit();
+        return ret;
+    }
+
+    return orig::sem_wait(sem);
+}
 
 /* Override */ int sem_timedwait (sem_t * sem, const struct timespec *abstime)
 {
@@ -680,12 +693,22 @@ static std::map<pthread_cond_t*, clockid_t>& getCondClock() {
 
 /* Override */ int sem_trywait (sem_t *sem) __THROW
 {
-    LINK_NAMESPACE(sem_trywait, "pthread");
+    LINK_NAMESPACE_VERSION(sem_trywait, "pthread", "GLIBC_2_1");
     if (GlobalState::isNative())
         return orig::sem_trywait(sem);
 
     DEBUGLOGCALL(LCF_THREAD | LCF_WAIT | LCF_TODO);
     return orig::sem_trywait(sem);
+}
+
+/* Override */ int sem_post (sem_t *sem) __THROW
+{
+    LINK_NAMESPACE_VERSION(sem_post, "pthread", "GLIBC_2.1");
+    if (GlobalState::isNative())
+        return orig::sem_post(sem);
+
+    debuglogstdio(LCF_THREAD | LCF_WAIT, "%s called with sem %p", __func__, sem);
+    return orig::sem_post(sem);
 }
 
 int pthread_attr_setstack(pthread_attr_t *attr, void *stackaddr, size_t stacksize) __THROW

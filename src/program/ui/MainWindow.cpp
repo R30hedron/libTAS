@@ -115,6 +115,7 @@ MainWindow::MainWindow(Context* c) : QMainWindow(), context(c)
     connect(gameLoop, &GameLoop::inputsAdded, inputEditorWindow->inputEditorView->inputEditorModel, &InputEditorModel::endAddInputs);
     connect(gameLoop, &GameLoop::inputsToBeEdited, inputEditorWindow->inputEditorView->inputEditorModel, &InputEditorModel::beginEditInputs);
     connect(gameLoop, &GameLoop::inputsEdited, inputEditorWindow->inputEditorView->inputEditorModel, &InputEditorModel::endEditInputs);
+    connect(gameLoop->gameEvents, &GameEvents::inputsEdited, inputEditorWindow->inputEditorView->inputEditorModel, &InputEditorModel::endEditInputs);
     connect(gameLoop, &GameLoop::isInputEditorVisible, inputEditorWindow, &InputEditorWindow::isWindowVisible, Qt::DirectConnection);
     connect(gameLoop, &GameLoop::getRamWatch, ramWatchWindow, &RamWatchWindow::slotGet, Qt::DirectConnection);
     connect(gameLoop->gameEvents, &GameEvents::savestatePerformed, inputEditorWindow->inputEditorView->inputEditorModel, &InputEditorModel::registerSavestate);
@@ -140,7 +141,10 @@ MainWindow::MainWindow(Context* c) : QMainWindow(), context(c)
     disabledWidgetsOnStart.append(browseGamePath);
 
     /* Command-line options */
-    cmdOptions = new QLineEdit();
+    cmdOptions = new QComboBox();
+    cmdOptions->setMinimumWidth(400);
+    cmdOptions->setEditable(true);
+    cmdOptions->setInsertPolicy(QComboBox::NoInsert);
     disabledWidgetsOnStart.append(cmdOptions);
 
     /* Movie File */
@@ -209,12 +213,32 @@ MainWindow::MainWindow(Context* c) : QMainWindow(), context(c)
 
     /* Buttons */
     launchButton = new QPushButton(tr("Start"));
-    connect(launchButton, &QAbstractButton::clicked, this, &MainWindow::slotLaunch);
+    connect(launchButton, &QAbstractButton::clicked, this, [this] { MainWindow::slotLaunch(false); });
     disabledWidgetsOnStart.append(launchButton);
 
-    launchGdbButton = new QPushButton(tr("Start and attach gdb"));
-    connect(launchGdbButton, &QAbstractButton::clicked, this, &MainWindow::slotLaunch);
-    disabledWidgetsOnStart.append(launchGdbButton);
+    launchGdbButton = new QToolButton();
+    launchGdbButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+
+    launchGdbAction = new QAction(tr("Launch with GDB"), this);
+    launchLldbAction = new QAction(tr("Launch with LLDB"), this);
+
+    connect(launchGdbAction, &QAction::triggered, this, &MainWindow::slotLaunchGdb);
+    connect(launchLldbAction, &QAction::triggered, this, &MainWindow::slotLaunchLldb);
+
+    /* launchGdbButton is a special case, it's explicitly disabled along with
+     * all the other widgets on launch
+     */
+    //disabledWidgetsOnStart.append(launchGdbButton);
+
+#ifdef __unix__
+    launchGdbButton->setPopupMode(QToolButton::MenuButtonPopup);
+
+    QMenu *launchGdbButtonMenu = new QMenu();
+    launchGdbButton->setMenu(launchGdbButtonMenu);
+
+    launchGdbButtonMenu->addAction(launchGdbAction);
+    launchGdbButtonMenu->addAction(launchLldbAction);
+#endif
 
     stopButton = new QPushButton(tr("Stop"));
     connect(stopButton, &QAbstractButton::clicked, this, &MainWindow::slotStop);
@@ -360,7 +384,7 @@ MainWindow::MainWindow(Context* c) : QMainWindow(), context(c)
     if (!context->interactive) {
         slotPause(false);
         slotFastForward(true);
-        slotLaunch();
+        slotLaunch(false);
     }
 }
 
@@ -370,6 +394,42 @@ MainWindow::~MainWindow()
 
     if (game_thread.joinable())
         game_thread.detach();
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if(!context->interactive) {
+        event->accept();
+        return;
+    }
+
+    if (context->status == Context::INACTIVE)
+        event->accept();
+
+    if(gameLoop->movie.inputs->modifiedSinceLastSave) {
+        QMessageBox::StandardButton result = QMessageBox::question(
+            this, tr("Unsaved Work"), 
+            tr("You have unsaved work. Would you like to save it?"),
+            QMessageBox::Cancel|QMessageBox::Discard|QMessageBox::Save,
+            QMessageBox::Save
+        );
+
+        switch (result) {
+            case QMessageBox::Save:
+                this->gameLoop->movie.saveMovie();
+                event->accept();
+                break;
+            case QMessageBox::Discard:
+                event->accept();
+                break;
+            case QMessageBox::Cancel:
+            default:
+                event->ignore();
+                break;
+        }
+    } else {
+        event->accept();
+    }
 }
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event)
@@ -470,7 +530,8 @@ void MainWindow::createActions()
     addActionCheckable(localeGroup, tr("English"), SharedConfig::LOCALE_ENGLISH);
     addActionCheckable(localeGroup, tr("Japanese"), SharedConfig::LOCALE_JAPANESE);
     addActionCheckable(localeGroup, tr("Korean"), SharedConfig::LOCALE_KOREAN);
-    addActionCheckable(localeGroup, tr("Chinese"), SharedConfig::LOCALE_CHINESE);
+    addActionCheckable(localeGroup, tr("Chinese, Simplified"), SharedConfig::LOCALE_CHINESE_SIMPLIFIED);
+    addActionCheckable(localeGroup, tr("Chinese, Traditional"), SharedConfig::LOCALE_CHINESE_TRADITIONAL);
     addActionCheckable(localeGroup, tr("Spanish"), SharedConfig::LOCALE_SPANISH);
     addActionCheckable(localeGroup, tr("German"), SharedConfig::LOCALE_GERMAN);
     addActionCheckable(localeGroup, tr("French"), SharedConfig::LOCALE_FRENCH);
@@ -560,32 +621,36 @@ void MainWindow::createActions()
     addActionCheckable(loggingPrintGroup, tr("Error"), LCF_ERROR);
     addActionCheckable(loggingPrintGroup, tr("Warning"), LCF_WARNING);
     addActionCheckable(loggingPrintGroup, tr("Info"), LCF_INFO);
-    addActionCheckable(loggingPrintGroup, tr("ToDo"), LCF_TODO);
-    addActionCheckable(loggingPrintGroup, tr("Hook"), LCF_HOOK);
-    addActionCheckable(loggingPrintGroup, tr("Time Set"), LCF_TIMESET);
-    addActionCheckable(loggingPrintGroup, tr("Time Get"), LCF_TIMEGET);
+    addActionCheckable(loggingPrintGroup, tr("TODO"), LCF_TODO);
+
+    QAction *loggingPrintGroupSeparator = new QAction(loggingPrintGroup);
+    loggingPrintGroupSeparator->setSeparator(true);
+
+    addActionCheckable(loggingPrintGroup, tr("AV Dumping"), LCF_DUMP);
     addActionCheckable(loggingPrintGroup, tr("Checkpoint"), LCF_CHECKPOINT);
-    addActionCheckable(loggingPrintGroup, tr("Wait"), LCF_WAIT);
+    addActionCheckable(loggingPrintGroup, tr("Events"), LCF_EVENTS);
+    addActionCheckable(loggingPrintGroup, tr("File IO"), LCF_FILEIO);
+    addActionCheckable(loggingPrintGroup, tr("Hook"), LCF_HOOK);
+    addActionCheckable(loggingPrintGroup, tr("Joystick"), LCF_JOYSTICK);
+    addActionCheckable(loggingPrintGroup, tr("Keyboard"), LCF_KEYBOARD);
+    addActionCheckable(loggingPrintGroup, tr("Locale"), LCF_LOCALE);
+    addActionCheckable(loggingPrintGroup, tr("Mouse"), LCF_MOUSE);
+    addActionCheckable(loggingPrintGroup, tr("OpenGL/Vulkan"), LCF_OGL);
+    addActionCheckable(loggingPrintGroup, tr("Random"), LCF_RANDOM);
+    addActionCheckable(loggingPrintGroup, tr("SDL"), LCF_SDL);
+    addActionCheckable(loggingPrintGroup, tr("Signals"), LCF_SIGNAL);
     addActionCheckable(loggingPrintGroup, tr("Sleep"), LCF_SLEEP);
     addActionCheckable(loggingPrintGroup, tr("Socket"), LCF_SOCKET);
-    addActionCheckable(loggingPrintGroup, tr("Locale"), LCF_LOCALE);
-    addActionCheckable(loggingPrintGroup, tr("OpenGL/Vulkan"), LCF_OGL);
-    addActionCheckable(loggingPrintGroup, tr("AV Dumping"), LCF_DUMP);
-    addActionCheckable(loggingPrintGroup, tr("SDL"), LCF_SDL);
-    addActionCheckable(loggingPrintGroup, tr("Wine"), LCF_WINE);
-    addActionCheckable(loggingPrintGroup, tr("Keyboard"), LCF_KEYBOARD);
-    addActionCheckable(loggingPrintGroup, tr("Mouse"), LCF_MOUSE);
-    addActionCheckable(loggingPrintGroup, tr("Joystick"), LCF_JOYSTICK);
-    addActionCheckable(loggingPrintGroup, tr("System"), LCF_SYSTEM);
     addActionCheckable(loggingPrintGroup, tr("Sound"), LCF_SOUND);
-    addActionCheckable(loggingPrintGroup, tr("Random"), LCF_RANDOM);
-    addActionCheckable(loggingPrintGroup, tr("Signals"), LCF_SIGNAL);
-    addActionCheckable(loggingPrintGroup, tr("Events"), LCF_EVENTS);
-    addActionCheckable(loggingPrintGroup, tr("Windows"), LCF_WINDOW);
-    addActionCheckable(loggingPrintGroup, tr("File IO"), LCF_FILEIO);
     addActionCheckable(loggingPrintGroup, tr("Steam"), LCF_STEAM);
-    addActionCheckable(loggingPrintGroup, tr("Threads"), LCF_THREAD);
+    addActionCheckable(loggingPrintGroup, tr("System"), LCF_SYSTEM);
+    addActionCheckable(loggingPrintGroup, tr("Time Get"), LCF_TIMEGET);
+    addActionCheckable(loggingPrintGroup, tr("Time Set"), LCF_TIMESET);
     addActionCheckable(loggingPrintGroup, tr("Timers"), LCF_TIMERS);
+    addActionCheckable(loggingPrintGroup, tr("Threads"), LCF_THREAD);
+    addActionCheckable(loggingPrintGroup, tr("Wait"), LCF_WAIT);
+    addActionCheckable(loggingPrintGroup, tr("Windows"), LCF_WINDOW);
+    addActionCheckable(loggingPrintGroup, tr("Wine"), LCF_WINE);
 
     loggingExcludeGroup = new QActionGroup(this);
     loggingExcludeGroup->setExclusive(false);
@@ -596,32 +661,36 @@ void MainWindow::createActions()
     addActionCheckable(loggingExcludeGroup, tr("Error"), LCF_ERROR);
     addActionCheckable(loggingExcludeGroup, tr("Warning"), LCF_WARNING);
     addActionCheckable(loggingExcludeGroup, tr("Info"), LCF_INFO);
-    addActionCheckable(loggingExcludeGroup, tr("ToDo"), LCF_TODO);
-    addActionCheckable(loggingExcludeGroup, tr("Hook"), LCF_HOOK);
-    addActionCheckable(loggingExcludeGroup, tr("Time Set"), LCF_TIMESET);
-    addActionCheckable(loggingExcludeGroup, tr("Time Get"), LCF_TIMEGET);
+    addActionCheckable(loggingExcludeGroup, tr("TODO"), LCF_TODO);
+
+    QAction *loggingExcludeGroupSeparator = new QAction(loggingExcludeGroup);
+    loggingExcludeGroupSeparator->setSeparator(true);
+
+    addActionCheckable(loggingExcludeGroup, tr("AV Dumping"), LCF_DUMP);
     addActionCheckable(loggingExcludeGroup, tr("Checkpoint"), LCF_CHECKPOINT);
-    addActionCheckable(loggingExcludeGroup, tr("Wait"), LCF_WAIT);
+    addActionCheckable(loggingExcludeGroup, tr("Events"), LCF_EVENTS);
+    addActionCheckable(loggingExcludeGroup, tr("File IO"), LCF_FILEIO);
+    addActionCheckable(loggingExcludeGroup, tr("Hook"), LCF_HOOK);
+    addActionCheckable(loggingExcludeGroup, tr("Joystick"), LCF_JOYSTICK);
+    addActionCheckable(loggingExcludeGroup, tr("Keyboard"), LCF_KEYBOARD);
+    addActionCheckable(loggingExcludeGroup, tr("Locale"), LCF_LOCALE);
+    addActionCheckable(loggingExcludeGroup, tr("Mouse"), LCF_MOUSE);
+    addActionCheckable(loggingExcludeGroup, tr("OpenGL/Vulkan"), LCF_OGL);
+    addActionCheckable(loggingExcludeGroup, tr("Random"), LCF_RANDOM);
+    addActionCheckable(loggingExcludeGroup, tr("SDL"), LCF_SDL);
+    addActionCheckable(loggingExcludeGroup, tr("Signals"), LCF_SIGNAL);
     addActionCheckable(loggingExcludeGroup, tr("Sleep"), LCF_SLEEP);
     addActionCheckable(loggingExcludeGroup, tr("Socket"), LCF_SOCKET);
-    addActionCheckable(loggingExcludeGroup, tr("Locale"), LCF_LOCALE);
-    addActionCheckable(loggingExcludeGroup, tr("OpenGL/Vulkan"), LCF_OGL);
-    addActionCheckable(loggingExcludeGroup, tr("AV Dumping"), LCF_DUMP);
-    addActionCheckable(loggingExcludeGroup, tr("SDL"), LCF_SDL);
-    addActionCheckable(loggingExcludeGroup, tr("Wine"), LCF_WINE);
-    addActionCheckable(loggingExcludeGroup, tr("Keyboard"), LCF_KEYBOARD);
-    addActionCheckable(loggingExcludeGroup, tr("Mouse"), LCF_MOUSE);
-    addActionCheckable(loggingExcludeGroup, tr("Joystick"), LCF_JOYSTICK);
-    addActionCheckable(loggingExcludeGroup, tr("System"), LCF_SYSTEM);
     addActionCheckable(loggingExcludeGroup, tr("Sound"), LCF_SOUND);
-    addActionCheckable(loggingExcludeGroup, tr("Random"), LCF_RANDOM);
-    addActionCheckable(loggingExcludeGroup, tr("Signals"), LCF_SIGNAL);
-    addActionCheckable(loggingExcludeGroup, tr("Events"), LCF_EVENTS);
-    addActionCheckable(loggingExcludeGroup, tr("Windows"), LCF_WINDOW);
-    addActionCheckable(loggingExcludeGroup, tr("File IO"), LCF_FILEIO);
     addActionCheckable(loggingExcludeGroup, tr("Steam"), LCF_STEAM);
-    addActionCheckable(loggingExcludeGroup, tr("Threads"), LCF_THREAD);
+    addActionCheckable(loggingExcludeGroup, tr("System"), LCF_SYSTEM);
+    addActionCheckable(loggingExcludeGroup, tr("Time Get"), LCF_TIMEGET);
+    addActionCheckable(loggingExcludeGroup, tr("Time Set"), LCF_TIMESET);
     addActionCheckable(loggingExcludeGroup, tr("Timers"), LCF_TIMERS);
+    addActionCheckable(loggingExcludeGroup, tr("Threads"), LCF_THREAD);
+    addActionCheckable(loggingExcludeGroup, tr("Wait"), LCF_WAIT);
+    addActionCheckable(loggingExcludeGroup, tr("Windows"), LCF_WINDOW);
+    addActionCheckable(loggingExcludeGroup, tr("Wine"), LCF_WINE);
 
     slowdownGroup = new QActionGroup(this);
     connect(slowdownGroup, &QActionGroup::triggered, this, &MainWindow::slotSlowdown);
@@ -800,6 +869,11 @@ void MainWindow::createMenus()
 
     debugMenu->addSeparator();
 
+    sigintAction = debugMenu->addAction(tr("Raise SIGINT upon game launch (if debugging)"));
+    sigintAction->setCheckable(true);
+
+    debugMenu->addSeparator();
+
     debugMenu->addActions(loggingOutputGroup->actions());
     disabledActionsOnStart.append(loggingOutputGroup->actions());
 
@@ -897,6 +971,8 @@ void MainWindow::updateStatus()
             initialTimeSec->setValue(context->config.sc.initial_time_sec);
             initialTimeNsec->setValue(context->config.sc.initial_time_nsec);
 
+            launchGdbButton->setEnabled(true);
+
             if (context->config.sc.av_dumping) {
                 context->config.sc.av_dumping = false;
                 configEncodeAction->setEnabled(true);
@@ -928,6 +1004,8 @@ void MainWindow::updateStatus()
                 fpsNumField->setEnabled(false);
                 fpsDenField->setEnabled(false);
             }
+
+            launchGdbButton->setEnabled(false);
 
             movieBox->setCheckable(false);
             if (context->config.sc.recording == SharedConfig::NO_RECORDING) {
@@ -1198,7 +1276,12 @@ void MainWindow::updateUIFromConfig()
     gamePath->setEditText(context->gamepath.c_str());
     connect(gamePath, &QComboBox::editTextChanged, this, &MainWindow::slotGamePathChanged);
 
-    cmdOptions->setText(context->config.gameargs.c_str());
+    cmdOptions->clear();
+    for (const auto& args : context->config.recent_args) {
+        cmdOptions->addItem(QString(args.c_str()));
+    }
+    cmdOptions->setEditText(context->config.gameargs.c_str());
+    
     moviePath->setText(context->config.moviefile.c_str());
 
     movieBox->setChecked(!(context->config.sc.recording == SharedConfig::NO_RECORDING));
@@ -1254,6 +1337,15 @@ void MainWindow::updateUIFromConfig()
 
     setRadioFromList(movieEndGroup, context->config.on_movie_end);
 
+    switch (context->config.debugger) {
+    case Config::DEBUGGER_GDB:
+        launchGdbButton->setDefaultAction(launchGdbAction);
+        break;
+    case Config::DEBUGGER_LLDB:
+        launchGdbButton->setDefaultAction(launchLldbAction);
+        break;
+    }
+
     updateStatusBar();
 }
 
@@ -1279,12 +1371,25 @@ void MainWindow::updateStatusBar()
     }
 }
 
-void MainWindow::slotLaunch()
+void MainWindow::slotLaunchGdb() {
+    context->config.debugger = Config::DEBUGGER_GDB;
+    launchGdbButton->setDefaultAction(launchGdbAction);
+
+    slotLaunch(true);
+}
+
+void MainWindow::slotLaunchLldb() {
+    context->config.debugger = Config::DEBUGGER_LLDB;
+    launchGdbButton->setDefaultAction(launchLldbAction);
+
+    slotLaunch(true);
+}
+
+void MainWindow::slotLaunch(bool attach_gdb)
 {
 
     /* Do we attach gdb ? */
-    QPushButton* button = static_cast<QPushButton*>(sender());
-    context->attach_gdb = (button == launchGdbButton);
+    context->attach_gdb = attach_gdb;
 
     if (context->status != Context::INACTIVE)
         return;
@@ -1306,6 +1411,8 @@ void MainWindow::slotLaunch()
     setListFromRadio(channelGroup, context->config.sc.audio_channels);
 
     setListFromRadio(loggingOutputGroup, context->config.sc.logging_status);
+
+    context->config.sc.sigint_upon_launch = context->attach_gdb && sigintAction->isChecked();
 
     context->config.sc.mouse_support = mouseAction->isChecked();
     setListFromRadio(joystickGroup, context->config.sc.nb_controllers);
@@ -1335,7 +1442,17 @@ void MainWindow::slotLaunch()
     setMaskFromCheckboxes(asyncGroup, context->config.sc.async_events);
     setMaskFromCheckboxes(savestateGroup, context->config.sc.savestate_settings);
 
-    context->config.gameargs = cmdOptions->text().toStdString();
+    context->config.gameargs = cmdOptions->currentText().toStdString();
+
+    /* Save the config */
+    context->config.save(context->gamepath);
+
+    /* Update the game args list */
+    cmdOptions->clear();
+    for (const auto& args : context->config.recent_args) {
+        cmdOptions->addItem(QString(args.c_str()));
+    }
+    cmdOptions->setEditText(context->config.gameargs.c_str());
 
     /* Check that there might be a thread from a previous game execution */
     if (game_thread.joinable())
@@ -1350,8 +1467,20 @@ void MainWindow::slotLaunch()
 void MainWindow::slotStop()
 {
     if (context->status == Context::QUITTING) {
-        /* Terminate the game process */
-        kill(context->game_pid, SIGKILL);
+        if (context->game_pid != 0) {
+            /* Terminate the game process */
+            kill(context->game_pid, SIGKILL);
+        } else {
+            /* In this case, the game has closed (because game_pid has been set
+             * to 0 by loopExit) yet status is still QUITTING, because status
+             * depends on whether fork_pid is alive, not the game itself.
+             *
+             * So in this case, the game process and the forked process have
+             * different pids (which can happen with gdb, for example) and the
+             * game process has quit, but the forked process has not.
+             */
+            kill(context->fork_pid, SIGKILL);
+        }
         return;
     }
 
@@ -1492,8 +1621,17 @@ void MainWindow::slotPause(bool checked)
     context->config.sc_modified = true;\
 }\
 
-
-BOOLSLOT(slotFastForward, context->config.sc.fastforward)
+void MainWindow::slotFastForward(bool checked)
+{
+    if (context->status == Context::INACTIVE) {
+        /* If the game is inactive, set the value directly */
+        context->config.sc.fastforward = checked;
+    }
+    else {
+        /* Else, let the game thread set the value */
+        context->hotkey_pressed_queue.push(HOTKEY_TOGGLE_FASTFORWARD);
+    }
+}
 
 void MainWindow::slotMovieEnable(bool checked)
 {

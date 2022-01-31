@@ -112,7 +112,7 @@ struct __attribute__((packed, aligned(8))) SharedConfig {
     int audio_frequency = 44100;
 
     /* Encode config */
-    int video_codec = 0;
+    int video_codec = 2; // x264rgb
     int video_bitrate = 4000;
     int video_framerate = 60; // used when variable framerate
     int audio_codec = 0;
@@ -165,7 +165,8 @@ struct __attribute__((packed, aligned(8))) SharedConfig {
         LOCALE_ENGLISH,
         LOCALE_JAPANESE,
         LOCALE_KOREAN,
-        LOCALE_CHINESE,
+        LOCALE_CHINESE_SIMPLIFIED,
+        LOCALE_CHINESE_TRADITIONAL,
         LOCALE_SPANISH,
         LOCALE_GERMAN,
         LOCALE_FRENCH,
@@ -295,6 +296,9 @@ struct __attribute__((packed, aligned(8))) SharedConfig {
 
     /* Send stack traces of all time calls to libTAS program */
     bool time_trace = false;
+
+    /* Call raise(SIGINT) in libtas::init */
+    bool sigint_upon_launch = false;
 };
 
 #endif

@@ -30,6 +30,7 @@
 #include "ThreadSync.h"
 #include "../timewrappers.h" // clock_gettime
 #include "../logging.h"
+#include "../hook.h"
 //#include "../audio/AudioPlayer.h"
 #include "AltStack.h"
 #include "ReservedMemory.h"
@@ -220,6 +221,9 @@ bool ThreadManager::initThreadFromParent(ThreadInfo* thread, void * (* start_rou
     thread->initial_owncode = GlobalState::isOwnCode();
     thread->initial_nolog = GlobalState::isNoLog();
 
+    thread->syncCount = 0;
+    thread->syncOldCount = 0;
+    
     if (!isRecycled) {
         thread->pthread_id = 0;
         thread->tid = 0;

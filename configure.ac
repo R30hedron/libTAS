@@ -1,6 +1,6 @@
 dnl **** Initialization ****
 
-AC_INIT([libTAS], [1.4.0], [clement.gallet@ens-lyon.org])
+AC_INIT([libTAS], [1.4.2], [clement.gallet@ens-lyon.org])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
 AC_PROG_CXX
 AC_CONFIG_SRCDIR([src/program/main.cpp])
@@ -64,7 +64,10 @@ AS_IF([test "x$enable_i386_lib" != "xyes"], [
 
     AC_SEARCH_LIBS([pthread_create], [pthread], [], [AC_MSG_ERROR(The pthread library is required!)])
 
-    PKG_CHECK_MODULES([LIBLUA], [lua53])
+    PKG_CHECK_MODULES([LIBLUA], [lua54],, [
+        PKG_CHECK_MODULES([LIBLUA], [lua53])
+    ])
+
     AC_SUBST([LIBLUA_CFLAGS])
     AC_SUBST([LIBLUA_LIBS])
     

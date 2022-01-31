@@ -30,6 +30,8 @@
 
 #include <stdint.h>
 
+#define BUFFER_SIZE_MIN 2048
+
 namespace libtas {
 
 static int buffer_size = 4096; // in samples
@@ -56,6 +58,7 @@ DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_format_mask)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_set_rate)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_set_rate_near)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_set_rate_resample)
+DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_rate)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_rate_min)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_rate_max)
 
@@ -67,6 +70,8 @@ DEFINE_ORIG_POINTER(snd_pcm_hw_params_set_periods_near)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_periods)
 
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_buffer_size)
+DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_buffer_size_min)
+DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_buffer_size_max)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_get_buffer_time_max)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_set_buffer_size_near)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_set_buffer_time_near)
@@ -89,6 +94,7 @@ DEFINE_ORIG_POINTER(snd_pcm_nonblock)
 DEFINE_ORIG_POINTER(snd_pcm_close)
 DEFINE_ORIG_POINTER(snd_pcm_recover)
 DEFINE_ORIG_POINTER(snd_pcm_reset)
+DEFINE_ORIG_POINTER(snd_pcm_status)
 
 DEFINE_ORIG_POINTER(snd_pcm_mmap_begin)
 DEFINE_ORIG_POINTER(snd_pcm_mmap_commit)
@@ -101,6 +107,7 @@ DEFINE_ORIG_POINTER(snd_pcm_pause)
 DEFINE_ORIG_POINTER(snd_pcm_resume)
 DEFINE_ORIG_POINTER(snd_pcm_wait)
 DEFINE_ORIG_POINTER(snd_pcm_delay)
+DEFINE_ORIG_POINTER(snd_pcm_avail)
 DEFINE_ORIG_POINTER(snd_pcm_avail_update)
 DEFINE_ORIG_POINTER(snd_pcm_rewind)
 DEFINE_ORIG_POINTER(snd_pcm_hw_params_test_rate)
@@ -118,6 +125,7 @@ DEFINE_ORIG_POINTER(snd_pcm_format_mask_malloc)
 DEFINE_ORIG_POINTER(snd_pcm_format_mask_free)
 DEFINE_ORIG_POINTER(snd_pcm_format_mask_test)
 
+DEFINE_ORIG_POINTER(snd_pcm_bytes_to_frames)
 DEFINE_ORIG_POINTER(snd_pcm_frames_to_bytes)
 
 static int get_latency(snd_pcm_t *pcm);
@@ -447,6 +455,21 @@ int snd_pcm_delay(snd_pcm_t *pcm, snd_pcm_sframes_t *delayp)
     return 0;
 }
 
+snd_pcm_sframes_t snd_pcm_avail(snd_pcm_t *pcm)
+{
+    if (GlobalState::isNative()) {
+        LINK_NAMESPACE_GLOBAL(snd_pcm_avail);
+        return orig::snd_pcm_avail(pcm);
+    }
+
+    DEBUGLOGCALL(LCF_SOUND);
+    snd_pcm_sframes_t avail = buffer_size - get_latency(pcm);
+    if (avail<0)
+        avail = 0;
+    debuglogstdio(LCF_SOUND, "   return %d", avail);
+    return avail;
+}
+
 snd_pcm_sframes_t snd_pcm_avail_update(snd_pcm_t *pcm)
 {
     if (GlobalState::isNative()) {
@@ -488,7 +511,18 @@ int snd_pcm_recover(snd_pcm_t *pcm, int err, int silent)
     }
 
     DEBUGLOGCALL(LCF_SOUND);
-    return 0;
+
+    if (err == -EPIPE) {
+        int sourceId = reinterpret_cast<intptr_t>(pcm);
+        auto source = audiocontext.getSource(sourceId);
+
+        if (source->state == AudioSource::SOURCE_UNDERRUN)
+            source->state = AudioSource::SOURCE_PREPARED;
+        
+        return 0;
+    }
+    
+    return err;
 }
 
 int snd_pcm_reset(snd_pcm_t *pcm)
@@ -501,6 +535,20 @@ int snd_pcm_reset(snd_pcm_t *pcm)
     int sourceId = reinterpret_cast<intptr_t>(pcm);
     auto source = audiocontext.getSource(sourceId);
     source->setPosition(source->queueSize());
+    DEBUGLOGCALL(LCF_SOUND);
+    return 0;
+}
+
+int snd_pcm_status(snd_pcm_t *pcm, snd_pcm_status_t *status)
+{
+    if (GlobalState::isNative()) {
+        LINK_NAMESPACE_GLOBAL(snd_pcm_status);
+        return orig::snd_pcm_status(pcm, status);
+    }
+
+    // int sourceId = reinterpret_cast<intptr_t>(pcm);
+    // auto source = audiocontext.getSource(sourceId);
+    // source->setPosition(source->queueSize());
     DEBUGLOGCALL(LCF_SOUND);
     return 0;
 }
@@ -614,6 +662,11 @@ snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t *pcm, const void *buffer, snd_pcm_ufr
     if (source->state == AudioSource::SOURCE_PREPARED) {
         /* Start playback */
         source->state = AudioSource::SOURCE_PLAYING;
+    }
+
+    if (source->state == AudioSource::SOURCE_UNDERRUN) {
+        /* Underrun */
+        return -EPIPE;
     }
 
     if (source->state != AudioSource::SOURCE_PLAYING) {
@@ -1013,6 +1066,27 @@ int snd_pcm_hw_params_set_rate_resample(snd_pcm_t *pcm, snd_pcm_hw_params_t *par
     return 0;
 }
 
+int snd_pcm_hw_params_get_rate(const snd_pcm_hw_params_t *params, unsigned int *val, int *dir)
+{
+    if (GlobalState::isNative()) {
+        LINK_NAMESPACE_GLOBAL(snd_pcm_hw_params_get_rate);
+        return orig::snd_pcm_hw_params_get_rate(params, val, dir);
+    }
+
+    DEBUGLOGCALL(LCF_SOUND);
+
+    /* We don't have the pcm parameter here, so using the last opened source */
+    int sourceId = last_source;
+    auto source = audiocontext.getSource(sourceId);
+    auto buffer = source->buffer_queue[0];
+    if (buffer->frequency != 0) {
+        *val = buffer->frequency;
+        return 0;
+    }
+
+    return -1;
+}
+
 int snd_pcm_hw_params_get_rate_min(const snd_pcm_hw_params_t *params, unsigned int *val, int *dir)
 {
     if (GlobalState::isNative()) {
@@ -1072,8 +1146,23 @@ int snd_pcm_hw_params_set_period_time_near(snd_pcm_t *pcm, snd_pcm_hw_params_t *
         LINK_NAMESPACE_GLOBAL(snd_pcm_hw_params_set_period_time_near);
         return orig::snd_pcm_hw_params_set_period_time_near(pcm, params, val, dir);
     }
+    debuglogstdio(LCF_SOUND, "%s call with period time %d us and dir %d", __func__, *val, dir?*dir:-2);
 
-    DEBUGLOGCALL(LCF_SOUND);
+    int sourceId = reinterpret_cast<intptr_t>(pcm);
+    auto source = audiocontext.getSource(sourceId);
+    auto buffer = source->buffer_queue[0];
+
+    if (buffer->frequency != 0) {
+        unsigned int period_size = static_cast<uint64_t>(*val) * buffer->frequency / 1000000;
+        periods = buffer_size / period_size;
+        /* Buffer size should be a multiple of period size, so we return a corrected value */
+        /* TODO: support dir! */
+        *val = 1000000 * (buffer_size / periods) / buffer->frequency;
+        debuglogstdio(LCF_SOUND, "   returns period time of %d us", *val);
+    }
+    else {
+        debuglogstdio(LCF_SOUND | LCF_ERROR, "   set period time without specifying sample rate");
+    }    
     return 0;
 }
 
@@ -1083,8 +1172,14 @@ int snd_pcm_hw_params_set_period_size_near(snd_pcm_t *pcm, snd_pcm_hw_params_t *
         LINK_NAMESPACE_GLOBAL(snd_pcm_hw_params_set_period_size_near);
         return orig::snd_pcm_hw_params_set_period_size_near(pcm, params, val, dir);
     }
-
     debuglogstdio(LCF_SOUND, "%s call with period size %d and dir %d", __func__, *val, dir?*dir:-2);
+    
+    periods = buffer_size / *val;
+    /* Buffer size should be a multiple of period size, so we return a corrected value */
+    /* TODO: support dir! */
+    *val = buffer_size / periods;
+
+    debuglogstdio(LCF_SOUND, "   returning size %d ", *val);
     return 0;
 }
 
@@ -1124,6 +1219,30 @@ int snd_pcm_hw_params_get_buffer_size(const snd_pcm_hw_params_t *params, snd_pcm
     return 0;
 }
 
+int snd_pcm_hw_params_get_buffer_size_min(const snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val)
+{
+    if (GlobalState::isNative()) {
+        LINK_NAMESPACE_GLOBAL(snd_pcm_hw_params_get_buffer_size_min);
+        return orig::snd_pcm_hw_params_get_buffer_size_min(params, val);
+    }
+
+    DEBUGLOGCALL(LCF_SOUND);
+    *val = BUFFER_SIZE_MIN;
+    return 0;
+}
+
+int snd_pcm_hw_params_get_buffer_size_max(const snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val)
+{
+    if (GlobalState::isNative()) {
+        LINK_NAMESPACE_GLOBAL(snd_pcm_hw_params_get_buffer_size_max);
+        return orig::snd_pcm_hw_params_get_buffer_size_max(params, val);
+    }
+
+    DEBUGLOGCALL(LCF_SOUND);
+    *val = 4096;
+    return 0;
+}
+
 int snd_pcm_hw_params_get_buffer_time_max(const snd_pcm_hw_params_t *params, unsigned int *val, int *dir)
 {
     if (GlobalState::isNative()) {
@@ -1151,6 +1270,10 @@ int snd_pcm_hw_params_set_buffer_size_near(snd_pcm_t *pcm, snd_pcm_hw_params_t *
     }
 
     debuglogstdio(LCF_SOUND, "%s call with buffer size %d", __func__, *val);
+    if (*val < BUFFER_SIZE_MIN) {
+        debuglogstdio(LCF_SOUND | LCF_WARNING, "Buffer size is too low, raising to %d", BUFFER_SIZE_MIN);
+        *val = BUFFER_SIZE_MIN;
+    }
     buffer_size = *val;
     return 0;
 }
@@ -1176,7 +1299,17 @@ int snd_pcm_hw_params_set_buffer_time_near(snd_pcm_t *pcm, snd_pcm_hw_params_t *
 
     if (buffer->frequency != 0) {
         buffer_size = static_cast<uint64_t>(*val) * buffer->frequency / 1000000;
+        if (buffer_size < BUFFER_SIZE_MIN) {
+            buffer_size = BUFFER_SIZE_MIN;
+
+            *val = 1000000 * buffer_size / buffer->frequency;
+            debuglogstdio(LCF_SOUND | LCF_WARNING, "Buffer time is too low, raising to %d us", *val);
+        }
     }
+    else {
+        debuglogstdio(LCF_SOUND | LCF_ERROR, "   set buffer time without specifying sample rate");
+    }    
+
     return 0;
 }
 
@@ -1387,6 +1520,20 @@ int snd_pcm_format_mask_test(const snd_pcm_format_mask_t *mask, snd_pcm_format_t
         return 1;
 
     return 0;
+}
+
+snd_pcm_sframes_t snd_pcm_bytes_to_frames(snd_pcm_t *pcm, ssize_t bytes)
+{
+    if (GlobalState::isNative()) {
+        LINK_NAMESPACE_GLOBAL(snd_pcm_bytes_to_frames);
+        return orig::snd_pcm_bytes_to_frames(pcm, bytes);
+    }
+
+    debuglogstdio(LCF_SOUND, "%s called with bytes %d", __func__, bytes);
+    int sourceId = reinterpret_cast<intptr_t>(pcm);
+    auto source = audiocontext.getSource(sourceId);
+    auto buffer = source->buffer_queue[0];
+    return bytes / buffer->alignSize;
 }
 
 ssize_t snd_pcm_frames_to_bytes(snd_pcm_t *pcm, snd_pcm_sframes_t frames)

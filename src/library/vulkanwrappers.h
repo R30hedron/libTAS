@@ -21,6 +21,7 @@
 #define LIBTAS_VULKANWRAPPERS_H_INCL
 
 #include "global.h"
+#include <cstddef>
 #include <vector>
 #include "../external/vulkan_core.h"
 
@@ -45,7 +46,7 @@ namespace vk {
 
 OVERRIDE PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance, const char* pName);
 
-OVERRIDE PFN_vkVoidFunction vkGetDeviceProcAddr(VkDevice device, const char* pName);
+OVERRIDE PFN_vkVoidFunction myvkGetDeviceProcAddr(VkDevice device, const char* pName);
 
 VkResult myvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo,
                                 const VkAllocationCallbacks* pAllocator, VkDevice* pDevice);

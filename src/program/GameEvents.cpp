@@ -87,6 +87,17 @@ bool GameEvents::processEvent(GameEvents::EventType type, struct HotKey &hk)
 
             return false;
 
+        case HOTKEY_TOGGLE_FASTFORWARD:
+            /* Toggle fastforward */
+            context->config.sc.fastforward = !context->config.sc.fastforward;
+            emit sharedConfigChanged();
+            context->config.sc_modified = true;
+
+            /* Make frame advance auto-repeat faster */
+            ar_freq = 1;
+
+            return false;
+
         case HOTKEY_SAVESTATE1:
         case HOTKEY_SAVESTATE2:
         case HOTKEY_SAVESTATE3:
@@ -360,6 +371,13 @@ int GameEvents::handleEvent()
         flags |= RETURN_FLAG_UPDATE; // For now, mark all events for update
         if (processEvent(eventType, hk))
             flags |= RETURN_FLAG_ADVANCE;
+    }
+    else {
+        uint64_t input_framecount = movie->inputs->processEvent();
+        while (input_framecount != UINT64_MAX) {
+            emit inputsEdited(input_framecount);
+            input_framecount = movie->inputs->processEvent();
+        }
     }
     return flags;
 }

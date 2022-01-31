@@ -21,14 +21,13 @@
 #include "xevents.h"
 #include "../logging.h"
 #include "../hook.h"
+#include "../GameHacks.h"
+#include "../frame.h"
 #include "XlibEventQueueList.h"
 #include "xatom.h"
 #include "xdisplay.h" // x11::gameDisplays
 #include "xwindows.h" // x11::gameXWindows
-
-#ifdef LIBTAS_HAS_XINPUT
-#include <X11/extensions/XInput2.h>
-#endif
+#include "../../external/X11/XInput2.h"
 
 #include "xrandr.h"
 
@@ -76,6 +75,14 @@ static Bool isEventFiltered (XEvent *event) {
                 XConfigureEvent* xce = reinterpret_cast<XConfigureEvent*>(event);
                 xce->x = 0;
                 xce->y = 0;
+            }
+            /* We need to filter this event on Unity. Without this, moving the
+             * game window makes inputs stop registering. We still need this
+             * on the first frame though.  */
+            if (GameHacks::isUnity()) {
+                if (framecount == 0)
+                    return False;
+                return True;                
             }
             return False;
         case ClientMessage:
@@ -593,7 +600,6 @@ void XFreeEventData(Display* dpy, XGenericEventCookie* cookie)
         return orig::XFreeEventData(dpy, cookie);
     }
 
-#ifdef LIBTAS_HAS_XINPUT
     if (cookie && cookie->data) {
         XIEvent* xiev = static_cast<XIEvent*>(cookie->data);
         XIRawEvent *rev;
@@ -626,7 +632,6 @@ void XFreeEventData(Display* dpy, XGenericEventCookie* cookie)
         }
         free(cookie->data);
     }
-#endif
 }
 
 

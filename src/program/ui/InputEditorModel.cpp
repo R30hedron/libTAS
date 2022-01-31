@@ -103,6 +103,45 @@ QVariant InputEditorModel::data(const QModelIndex &index, int role) const
         return font;
     }
 
+    if (role == Qt::ForegroundRole) {
+        if (row >= movie->inputs->nbFrames()) {
+            return QGuiApplication::palette().text();
+        }
+        if (index.column() <= 1) {
+            return QGuiApplication::palette().text();
+        }
+
+        QColor color = QGuiApplication::palette().text().color();
+
+        /* Show inputs with transparancy when they are pending due to rewind */
+        movie->inputs->input_event_queue.lock();
+        for (auto it = movie->inputs->input_event_queue.begin(); it != movie->inputs->input_event_queue.end(); it++) {
+            if (it->framecount != row)
+                continue;
+            const SingleInput si = movie->editor->input_set[index.column()-2];
+            if (si == it->si) {
+                /* For analog, use half-transparancy. Otherwise,
+                 * use strong/weak transparancy of set/clear input */
+                if (si.isAnalog()) {
+                    color.setAlpha(128);
+                }
+                else {
+                    if (it->value) {
+                        color.setAlpha(192);
+                    }
+                    else {
+                        color.setAlpha(64);
+                    }
+                }
+                /* We don't return the brush immediatly, because users may change
+                 * multiple times the same input. */
+            }
+        }
+        movie->inputs->input_event_queue.unlock();
+        
+        return QBrush(color);
+    }
+
     if (role == Qt::BackgroundRole) {
         /* Main color */
         QColor color = QGuiApplication::palette().window().color();
@@ -213,6 +252,25 @@ QVariant InputEditorModel::data(const QModelIndex &index, int role) const
 
         /* Get the value of the single input in movie inputs */
         int value = ai.getInput(si);
+        
+        /* If the value is currently being modified, load the new value */
+        movie->inputs->input_event_queue.lock();
+        for (auto it = movie->inputs->input_event_queue.begin(); it != movie->inputs->input_event_queue.end(); it++) {
+            if (it->framecount != row)
+                continue;
+            if (si == it->si) {
+                if (si.isAnalog()) {
+                    value = it->value;
+                }
+                else {
+                    /* For non-analog values, always print the value, and the
+                     * transparancy value will indicate if the value is being
+                     * cleared or set. */
+                    value = 1;
+                }
+            }
+        }
+        movie->inputs->input_event_queue.unlock();
 
         if (si.isAnalog()) {
             return QString().setNum(value);
@@ -279,12 +337,18 @@ bool InputEditorModel::setData(const QModelIndex &index, const QVariant &value, 
             insertRows(movie->inputs->nbFrames(), 1, QModelIndex());
         }
 
-        AllInputs &ai = movie->inputs->input_list[row];
+        /* Check if the data is different */
+        AllInputs ai;
+        movie->inputs->getInputs(ai, row);
+        if (value.toInt() == ai.getInput(si))
+            return false;
 
-        int ivalue = value.toInt();
-
-        ai.setInput(si, ivalue);
-        movie->inputs->wasModified();
+        /* Modifying the movie is only performed by the main thread */
+        InputEvent ie;
+        ie.framecount = row;
+        ie.si = si;
+        ie.value = value.toInt();
+        movie->inputs->input_event_queue.push(ie);
         emit dataChanged(index, index, {role});
         return true;
     }
@@ -361,16 +425,16 @@ bool InputEditorModel::toggleInput(const QModelIndex &index)
             return false;
     }
 
-    AllInputs &ai = movie->inputs->input_list[row];
-
-    int value = ai.toggleInput(si);
-    movie->inputs->wasModified();
-
+    /* Modifying the movie is only performed by the main thread */
+    AllInputs ai;
+    movie->inputs->getInputs(ai, row);
+    InputEvent ie;
+    ie.framecount = row;
+    ie.si = si;
+    ie.value = !ai.getInput(si);
+    movie->inputs->input_event_queue.push(ie);
     emit dataChanged(index, index);
-
-    movie->inputs->modifiedSinceLastSave = true;
-    movie->inputs->modifiedSinceLastAutoSave = true;
-    return value;
+    return ie.value;
 }
 
 std::string InputEditorModel::inputLabel(int column)
@@ -385,7 +449,7 @@ void InputEditorModel::renameLabel(int column, std::string label)
         return;
     
     movie->editor->input_set[column-2].description = label;
-    emit dataChanged(createIndex(0, column), createIndex(rowCount(), column));
+    emit dataChanged(index(0, column), index(rowCount(), column));
     emit inputSetChanged();
 }
 
@@ -518,7 +582,7 @@ int InputEditorModel::pasteInputs(int row)
     movie->inputs->updateLength();
 
     /* Update the paste inputs view */
-    emit dataChanged(createIndex(row,0), createIndex(row+paste_ais.size()-1,columnCount()));
+    emit dataChanged(index(row,0), index(row+paste_ais.size()-1,columnCount()));
 
     emit inputSetChanged();
 
@@ -555,7 +619,7 @@ void InputEditorModel::pasteInputsInRange(int row, int count)
     movie->inputs->updateLength();
 
     /* Update the paste inputs view */
-    emit dataChanged(createIndex(row,0), createIndex(row+count-1,columnCount()));
+    emit dataChanged(index(row,0), index(row+count-1,columnCount()));
 
     emit inputSetChanged();
 }
@@ -720,14 +784,14 @@ void InputEditorModel::lockUniqueInput(int column, bool locked)
     }
 
     /* Update the input column */
-    emit dataChanged(createIndex(0,column), createIndex(rowCount()-1,column));
+    emit dataChanged(index(0,column), index(rowCount()-1,column));
 }
 
 
 void InputEditorModel::clearInput(int row)
 {
     movie->inputs->input_list[row].emptyInputs();
-    emit dataChanged(createIndex(row, 0), createIndex(row, columnCount()));
+    emit dataChanged(index(row, 0), index(row, columnCount()));
 
     movie->inputs->wasModified();
 }
@@ -757,16 +821,16 @@ void InputEditorModel::endAddInputs()
     addUniqueInputs(movie->inputs->input_list[movie->inputs->nbFrames()-1]);
 }
 
-void InputEditorModel::beginEditInputs()
+void InputEditorModel::beginEditInputs(unsigned long long framecount)
 {
 }
 
-void InputEditorModel::endEditInputs()
+void InputEditorModel::endEditInputs(unsigned long long framecount)
 {
-    emit dataChanged(createIndex(context->framecount,0), createIndex(context->framecount,columnCount()));
+    emit dataChanged(index(framecount,0), index(framecount,columnCount()-1));
 
     /* We have to check if new inputs were added */
-    addUniqueInputs(movie->inputs->input_list[context->framecount]);
+    addUniqueInputs(movie->inputs->input_list[framecount]);
 }
 
 void InputEditorModel::update()
@@ -778,8 +842,8 @@ void InputEditorModel::update()
         emit inputSetChanged();
     }
     else {
-        emit dataChanged(createIndex(context->framecount,0), createIndex(context->framecount,columnCount()));
-        // emit dataChanged(createIndex(0,0), createIndex(rowCount(),columnCount()));
+        emit dataChanged(index(context->framecount,0), index(context->framecount,columnCount()-1));
+        // emit dataChanged(index(0,0), index(rowCount(),columnCount()));
     }
 }
 
@@ -799,7 +863,7 @@ void InputEditorModel::invalidateSavestates()
     invalid_frame = context->framecount;
     
     /* Update portion of the table */
-    emit dataChanged(createIndex(previous_invalid_frame,0), createIndex(context->framecount,columnCount()));
+    emit dataChanged(index(previous_invalid_frame,0), index(context->framecount,columnCount()-1));
 }
 
 /* Register a savestate. If saved, frame contains the framecount of the
@@ -808,8 +872,8 @@ void InputEditorModel::invalidateSavestates()
 void InputEditorModel::registerSavestate(int slot, unsigned long long frame)
 {
     /* Refresh the first column for previous and current state framecount */
-    emit dataChanged(createIndex(last_savestate,0), createIndex(last_savestate,0));
-    emit dataChanged(createIndex(frame,0), createIndex(frame,0));
+    emit dataChanged(index(last_savestate,0), index(last_savestate,0));
+    emit dataChanged(index(frame,0), index(frame,0));
 
     /* Update last savestate frame */
     if (frame == 0) {
@@ -827,9 +891,9 @@ void InputEditorModel::registerSavestate(int slot, unsigned long long frame)
         return;
         
     if (oldRoot < newRoot)
-        emit dataChanged(createIndex(oldRoot,0), createIndex(newRoot,columnCount()));
+        emit dataChanged(index(oldRoot,0), index(newRoot,columnCount()-1));
     else
-        emit dataChanged(createIndex(newRoot,0), createIndex(oldRoot,columnCount()));
+        emit dataChanged(index(newRoot,0), index(oldRoot,columnCount()-1));
 }
 
 void InputEditorModel::moveInputs(int oldIndex, int newIndex)
@@ -841,6 +905,14 @@ void InputEditorModel::moveInputs(int oldIndex, int newIndex)
 
 bool InputEditorModel::rewind(uint64_t framecount, bool toggle)
 {
+    /* If another rewind is already performing, don't do anything but let
+     * the possibility to change the input (the movie will check it it's
+     * allowed later in the process). This is checked by looking if the hotkey
+     * queue is empty or not (TODO: a bit of a hack, find better).
+     */
+    if (!context->hotkey_pressed_queue.empty())
+        return true;
+    
     /* If already on the frame, nothing to do */
     if (framecount == context->framecount)
         return true;

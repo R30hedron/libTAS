@@ -114,13 +114,20 @@ libtas_so_SOURCES = \
     sdl/sdlmutex.cpp \
     sdl/sdlrender.cpp \
     sdl/sdlthreads.cpp \
+    sdl/sdltime.cpp \
     sdl/sdltimer.cpp \
     sdl/sdlversion.cpp \
     sdl/sdlwindows.cpp \
     steam/CCallback.cpp \
     steam/CCallbackManager.cpp \
     steam/isteamapps.cpp \
-    steam/isteamclient.cpp \
+    steam/isteamclient/isteamclient.cpp \
+    steam/isteamclient/isteamclient006.cpp \
+    steam/isteamclient/isteamclient012.cpp \
+    steam/isteamclient/isteamclient014.cpp \
+    steam/isteamclient/isteamclient016.cpp \
+    steam/isteamclient/isteamclient017.cpp \
+    steam/isteamclient/isteamclient020.cpp \
     steam/isteamcontroller.cpp \
     steam/isteamfriends.cpp \
     steam/isteamgamecoordinator.cpp \
@@ -163,7 +170,8 @@ libtas_so_SOURCES = \
     ../shared/AllInputs.cpp \
     ../shared/SingleInput.cpp \
     ../shared/sockethelpers.cpp \
-    ../external/lz4.cpp
+    ../external/lz4.cpp \
+    ../external/elfhacks.cpp	
 
 libtas_so_CXXFLAGS = $(LIBSWRESAMPLE_CFLAGS) -fPIC -shared -fvisibility=hidden -fno-stack-protector
 libtas_so_CXXFLAGS += -DSOCKET_LOG

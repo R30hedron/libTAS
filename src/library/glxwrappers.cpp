@@ -25,6 +25,7 @@
 #include "ScreenCapture.h"
 #include "frame.h"
 #include "xlib/xwindows.h" // x11::gameXWindows
+#include "GameHacks.h"
 
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
@@ -58,11 +59,13 @@ DEFINE_ORIG_POINTER(glXGetProcAddress)
 DEFINE_ORIG_POINTER(glXGetProcAddressARB)
 DEFINE_ORIG_POINTER(glXGetProcAddressEXT)
 DEFINE_ORIG_POINTER(glXMakeCurrent)
+DEFINE_ORIG_POINTER(glXMakeContextCurrent)
 DEFINE_ORIG_POINTER(glXSwapBuffers)
 DEFINE_ORIG_POINTER(glXSwapIntervalEXT)
 DEFINE_ORIG_POINTER(glXSwapIntervalSGI)
 DEFINE_ORIG_POINTER(glXSwapIntervalMESA)
 DEFINE_ORIG_POINTER(glXGetSwapIntervalMESA)
+DEFINE_ORIG_POINTER(glXQueryExtensionsString)
 DEFINE_ORIG_POINTER(glXQueryDrawable)
 DEFINE_ORIG_POINTER(glXCreateContextAttribsARB)
 DEFINE_ORIG_POINTER(glXDestroyContext)
@@ -88,6 +91,7 @@ DECLARE_ORIG_POINTER(glGetError)
 DECLARE_ORIG_POINTER(glGenTextures)
 DECLARE_ORIG_POINTER(glDeleteTextures)
 DECLARE_ORIG_POINTER(glBindTexture)
+DECLARE_ORIG_POINTER(glBindSampler)
 DECLARE_ORIG_POINTER(glTexImage2D)
 DECLARE_ORIG_POINTER(glActiveTexture)
 DECLARE_ORIG_POINTER(glFramebufferTexture2D)
@@ -230,6 +234,7 @@ static void* store_orig_and_return_my_symbol(const GLubyte* symbol, void* real_p
     STORE_SYMBOL(glGenTextures)
     STORE_SYMBOL(glDeleteTextures)
     STORE_SYMBOL(glBindTexture)
+    STORE_SYMBOL(glBindSampler)
     STORE_SYMBOL(glTexImage2D)
     STORE_SYMBOL(glActiveTexture)
     STORE_SYMBOL(glFramebufferTexture2D)
@@ -262,6 +267,7 @@ static void* store_orig_and_return_my_symbol(const GLubyte* symbol, void* real_p
 
     /* Store function pointers and return our function */
     STORE_RETURN_SYMBOL(glXMakeCurrent)
+    STORE_RETURN_SYMBOL(glXMakeContextCurrent)
     STORE_RETURN_SYMBOL(glXSwapBuffers)
     STORE_RETURN_SYMBOL(glXQueryDrawable)
     STORE_RETURN_SYMBOL(glXSwapIntervalEXT)
@@ -269,6 +275,7 @@ static void* store_orig_and_return_my_symbol(const GLubyte* symbol, void* real_p
     STORE_RETURN_SYMBOL(glXSwapIntervalMESA)
     STORE_RETURN_SYMBOL(glXGetSwapIntervalMESA)
     STORE_RETURN_SYMBOL(glXSwapIntervalSGI)
+    STORE_RETURN_SYMBOL(glXQueryExtensionsString)
     STORE_RETURN_SYMBOL(glXCreateContextAttribsARB)
     STORE_RETURN_SYMBOL(glXDestroyContext)
 
@@ -418,6 +425,33 @@ Bool glXMakeCurrent( Display *dpy, GLXDrawable drawable, GLXContext ctx )
     return ret;
 }
 
+Bool glXMakeContextCurrent( Display *dpy, GLXDrawable draw, GLXDrawable read, GLXContext ctx )
+{
+    LINK_NAMESPACE(glXMakeContextCurrent, "GL");
+
+    Bool ret = orig::glXMakeContextCurrent(dpy, draw, read, ctx);
+    if (GlobalState::isNative())
+        return ret;
+
+    DEBUGLOGCALL(LCF_WINDOW | LCF_OGL);
+
+    if (draw && (!x11::gameXWindows.empty())) {
+
+        game_info.video |= GameInfo::OPENGL;
+        game_info.tosend = true;
+
+        /* If we are using SDL, we let the higher function initialize stuff */
+        if (!(game_info.video & (GameInfo::SDL1 | GameInfo::SDL2 | GameInfo::SDL2_RENDERER | GameInfo::VDPAU))) {
+            /* Now that the context is created, we can init the screen capture */
+            ScreenCapture::init();
+        }
+
+        checkMesa();
+    }
+
+    return ret;
+}
+
 void glXSwapBuffers( Display *dpy, XID drawable )
 {
     LINK_NAMESPACE(glXSwapBuffers, "GL");
@@ -467,7 +501,9 @@ int glXSwapIntervalSGI (int interval)
         return orig::glXSwapIntervalSGI(interval);
     }
     else {
-        return orig::glXSwapIntervalSGI(0);
+        int ret = orig::glXSwapIntervalSGI(1);
+        debuglogstdio(LCF_OGL, "   ret %d", ret);
+        return ret;
     }
 }
 
@@ -485,14 +521,35 @@ int glXSwapIntervalMESA (unsigned int interval)
     else {
         return orig::glXSwapIntervalMESA(0);
     }
-    }
+}
 
 int glXGetSwapIntervalMESA(void)
 {
-    DEBUGLOGCALL(LCF_WINDOW);
+    DEBUGLOGCALL(LCF_WINDOW | LCF_OGL);
     return swapInterval;
 }
 
+const char* glXQueryExtensionsString(Display* dpy, int screen)
+{
+    DEBUGLOGCALL(LCF_OGL);
+
+    /* Unity has different behaviors depending on the GLX extensions present,
+     * at least for GLX_SGI_swap_control. Returning an empty string works fine. */
+    if (GameHacks::isUnity())
+        return "GLX_ARB_create_context GLX_ARB_create_context_profile \
+GLX_ARB_create_context_robustness GLX_ARB_fbconfig_float \
+GLX_ARB_framebuffer_sRGB GLX_ARB_get_proc_address GLX_ARB_multisample \
+GLX_EXT_create_context_es2_profile GLX_EXT_create_context_es_profile \
+GLX_EXT_fbconfig_packed_float GLX_EXT_framebuffer_sRGB \
+GLX_EXT_import_context GLX_EXT_texture_from_pixmap GLX_EXT_visual_info \
+GLX_EXT_visual_rating GLX_MESA_copy_sub_buffer GLX_MESA_query_renderer \
+GLX_OML_swap_method GLX_SGIS_multisample GLX_SGIX_fbconfig \
+GLX_SGIX_pbuffer GLX_SGIX_visual_select_group GLX_SGI_make_current_read";
+
+    LINK_NAMESPACE(glXQueryExtensionsString, "GL");
+    return orig::glXQueryExtensionsString(dpy, screen);
+}
+    
 void glXQueryDrawable(Display * dpy,  GLXDrawable draw,  int attribute,  unsigned int * value)
 {
     DEBUGLOGCALL(LCF_WINDOW | LCF_OGL);

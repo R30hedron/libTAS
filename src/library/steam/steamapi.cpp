@@ -31,6 +31,12 @@
 #include "isteamremotestorage/isteamremotestorage012.h"
 #include "isteamremotestorage/isteamremotestorage013.h"
 #include "isteamremotestorage/isteamremotestorage014.h"
+#include "isteamclient/isteamclient006.h"
+#include "isteamclient/isteamclient012.h"
+#include "isteamclient/isteamclient014.h"
+#include "isteamclient/isteamclient016.h"
+#include "isteamclient/isteamclient017.h"
+#include "isteamclient/isteamclient020.h"
 
 namespace libtas {
 
@@ -48,11 +54,12 @@ static bool SteamGetInterfaceVersion()
         // { STEAMAPPS_INTERFACE_VERSION_006, SteamApps_set_version },
         // { STEAMAPPS_INTERFACE_VERSION_007, SteamApps_set_version },
         // { STEAMAPPS_INTERFACE_VERSION_008, SteamApps_set_version },
-        // { STEAMCLIENT_INTERFACE_VERSION_006, SteamClient_set_version },
-        // { STEAMCLIENT_INTERFACE_VERSION_012, SteamClient_set_version },
-        // { STEAMCLIENT_INTERFACE_VERSION_014, SteamClient_set_version },
-        // { STEAMCLIENT_INTERFACE_VERSION_016, SteamClient_set_version },
-        // { STEAMCLIENT_INTERFACE_VERSION_017, SteamClient_set_version },
+        { STEAMCLIENT_INTERFACE_VERSION_006, SteamClient_set_version },
+        { STEAMCLIENT_INTERFACE_VERSION_012, SteamClient_set_version },
+        { STEAMCLIENT_INTERFACE_VERSION_014, SteamClient_set_version },
+        { STEAMCLIENT_INTERFACE_VERSION_016, SteamClient_set_version },
+        { STEAMCLIENT_INTERFACE_VERSION_017, SteamClient_set_version },
+        { STEAMCLIENT_INTERFACE_VERSION_020, SteamClient_set_version },
         // { STEAMCONTROLLER_INTERFACE_VERSION_001, SteamController_set_version },
         // { STEAMCONTROLLER_INTERFACE_VERSION_003, SteamController_set_version },
         // { STEAMCONTROLLER_INTERFACE_VERSION_005, SteamController_set_version },
@@ -232,7 +239,6 @@ DEFINE_ORIG_POINTER(SteamAPI_RegisterCallback)
 DEFINE_ORIG_POINTER(SteamAPI_UnregisterCallback)
 DEFINE_ORIG_POINTER(SteamAPI_RegisterCallResult)
 DEFINE_ORIG_POINTER(SteamAPI_UnregisterCallResult)
-DEFINE_ORIG_POINTER(SteamClient)
 DEFINE_ORIG_POINTER(SteamController)
 DEFINE_ORIG_POINTER(SteamUserStats)
 DEFINE_ORIG_POINTER(SteamUser)
@@ -309,7 +315,7 @@ void SteamAPI_RunCallbacks()
 {
     DEBUGLOGCALL(LCF_STEAM);
     if (shared_config.virtual_steam)
-        CCallbackManager::Run();
+        return CCallbackManager::Run();
 
     LINK_NAMESPACE(SteamAPI_RunCallbacks, "steam_api");
     return orig::SteamAPI_RunCallbacks();
@@ -319,7 +325,7 @@ void SteamAPI_RegisterCallback( CCallbackBase *pCallback, enum steam_callback_ty
 {
     debuglogstdio(LCF_STEAM, "%s called with type %d", __func__, iCallback);
     if (shared_config.virtual_steam)
-        CCallbackManager::RegisterCallback(pCallback, iCallback);
+        return CCallbackManager::RegisterCallback(pCallback, iCallback);
 
     LINK_NAMESPACE(SteamAPI_RegisterCallback, "steam_api");
     return orig::SteamAPI_RegisterCallback(pCallback, iCallback);
@@ -329,7 +335,7 @@ void SteamAPI_UnregisterCallback( CCallbackBase *pCallback )
 {
     DEBUGLOGCALL(LCF_STEAM);
     if (shared_config.virtual_steam)
-        CCallbackManager::UnregisterCallback(pCallback);
+        return CCallbackManager::UnregisterCallback(pCallback);
 
     LINK_NAMESPACE(SteamAPI_UnregisterCallback, "steam_api");
     return orig::SteamAPI_UnregisterCallback(pCallback);
@@ -339,7 +345,7 @@ void SteamAPI_RegisterCallResult( CCallbackBase *pCallback, SteamAPICall_t hAPIC
 {
     DEBUGLOGCALL(LCF_STEAM);
     if (shared_config.virtual_steam)
-        CCallbackManager::RegisterApiCallResult(pCallback, hAPICall);
+        return CCallbackManager::RegisterApiCallResult(pCallback, hAPICall);
 
     LINK_NAMESPACE(SteamAPI_RegisterCallResult, "steam_api");
     return orig::SteamAPI_RegisterCallResult(pCallback, hAPICall);
@@ -349,22 +355,10 @@ void SteamAPI_UnregisterCallResult( CCallbackBase *pCallback, SteamAPICall_t hAP
 {
     DEBUGLOGCALL(LCF_STEAM);
     if (shared_config.virtual_steam)
-        CCallbackManager::UnregisterApiCallResult(pCallback, hAPICall);
+        return CCallbackManager::UnregisterApiCallResult(pCallback, hAPICall);
         
     LINK_NAMESPACE(SteamAPI_UnregisterCallResult, "steam_api");
     return orig::SteamAPI_UnregisterCallResult(pCallback, hAPICall);
-}
-
-ISteamClient *SteamClient()
-{
-    DEBUGLOGCALL(LCF_STEAM);
-    if (!shared_config.virtual_steam) {
-        LINK_NAMESPACE(SteamClient, "steam_api");
-        return orig::SteamClient();
-    }
-
-    static ISteamClient steamclient;
-    return &steamclient;
 }
 
 ISteamController *SteamController()

@@ -1,7 +1,47 @@
 ## [Unreleased]
 ### Added
+
+* Implement SteamInternal_FindOrCreateUserInterface()
+* Add shaders for OpenGL ES (#441)
+* Add history for game command-line arguments
+* Support binding keys to mouse buttons
+* Add a toggle fast-forward hotkey
+* Implements alGetString() (#447)
+* snd_pcm_recover() now supports underrun
+* Add interface to SteamClient, and add v020
+* Add another method to find dlfct symbols (#435)
+* Add Unity sync values for Dandara
+* Show pending input changes in the input editor when rewinding.
+* Ram Search window can be cleared
+* Add SDL_GetTicks64() (#461)
+* Implements snd_pcm_hw_params_get_rate()
+* Implements glXMakeContextCurrent()
+
 ### Changed
+
+* Raise the minimum audio buffer size
+* Change default video codec to x264rgb
+* Rework the ram search entirely (#268)
+
 ### Fixed
+
+* Fix variable RNG seed in Papers Please (#422)
+* Fix some keys with modifiers that are mapped to keys from another layout
+* Fix ALSA underrun support (fix #426)
+* Fix SDL2 hooking when different library name
+* Update SDL_GetKeyboardState returned value (#440)
+* Fix writing back savefiles on restart (#433)
+* Check for invalid SDL audio device (fix #432)
+* Remove unused LIBTAS_HAS_XINPUT which broke XInput opcode (fix #430)
+* Don't handle xcb events when 1x1 windows are created (#441)
+* Fix flags when restoring a file mapping (#445)
+* Fix some GL OSD black rectangle (#444)
+* Input editor toggling is now synced with main thread, preventing rare cases
+  of concurrent changes in the movie
+* Dragging in the input editor now toggle all inputs in between
+* Change audio context locking
+* Fix bug when accessing samples of empty buffer
+* Fix bug when accessing past the audio buffer (#463)
 
 ## [1.4.2] - 2021-07-06
 ### Added

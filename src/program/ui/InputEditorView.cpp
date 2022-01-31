@@ -21,6 +21,7 @@
 #include <QtWidgets/QHeaderView>
 #include <QtWidgets/QScrollBar>
 #include <QtWidgets/QMenuBar>
+#include <QtWidgets/QMessageBox>
 
 #include <stdint.h>
 
@@ -294,6 +295,8 @@ void InputEditorView::mousePressEvent(QMouseEvent *event)
     selectionModel()->clear();
     mouseSection = index.column();
     mouseRow = index.row();
+    mouseMinRow = mouseRow;
+    mouseMaxRow = mouseRow;
 
     /* Rewind when clicking for column */
     if (mouseSection == 0) {
@@ -335,28 +338,43 @@ void InputEditorView::mouseMoveEvent(QMouseEvent *event)
 
     event->accept();
 
-    /* Disable toggle together with rewind, because it can cause multiple
-     * rewinds because of the scrolling */
-    if (static_cast<unsigned int>(index.row()) < context->framecount)
+    /* Check if we need to toggle this input */
+    if ((index.row() >= mouseMinRow) && (index.row() <= mouseMaxRow))
         return;
 
-    /* Prevent toggle past the first toggle frame when rewinding */
+    /* Prevent toggle past the first toggle frame when rewinding, and
+     * if we started to toggle future inputs, don't trigger a rewind */
     if (index.row() < minToggleRow) {
         return;
     }
 
     int newMouseValue = mouseValue;
 
-    /* Check if we need to alternate the input state */
-    if (event->modifiers() & Qt::ControlModifier) {
-        if ((index.row() - mouseRow) % 2)
-            newMouseValue = !newMouseValue;
+    /* Toggle all cells from mouse to minRow-1, or maxRow+1 to mouse */
+    int minLoop, maxLoop;
+    if (index.row() < mouseMinRow) {
+        minLoop = index.row();
+        maxLoop = mouseMinRow - 1;
+        mouseMinRow = index.row();
+    }
+    else {
+        minLoop = mouseMaxRow + 1;
+        maxLoop = index.row();
+        mouseMaxRow = index.row();        
     }
 
-    /* Toggle the cell with the same row as the cell under the mouse */
-    QModelIndex toggle_index = inputEditorModel->index(index.row(), mouseSection);
-
-    inputEditorModel->setData(toggle_index, QVariant(newMouseValue), Qt::EditRole);
+    for (int i = minLoop; i <= maxLoop; i++) {
+        /* Check if we need to alternate the input state */
+        if (event->modifiers() & Qt::ControlModifier) {
+            if ((i - mouseRow) % 2)
+            newMouseValue = !newMouseValue;
+        }
+        
+        /* Toggle the cell with the same row as the cell under the mouse */
+        QModelIndex toggle_index = inputEditorModel->index(i, mouseSection);
+        
+        inputEditorModel->setData(toggle_index, QVariant(newMouseValue), Qt::EditRole);        
+    }
 }
 
 void InputEditorView::keyPressEvent(QKeyEvent *event)
@@ -627,6 +645,18 @@ void InputEditorView::deleteInput()
 
 void InputEditorView::truncateInputs()
 {
+    QMessageBox confirmBox;
+
+    confirmBox.setText("Really truncate the TAS?");
+    confirmBox.setInformativeText("Do you want to truncate all inputs beyond this point?");
+
+    confirmBox.setStandardButtons(QMessageBox::No | QMessageBox::Yes);
+    confirmBox.setDefaultButton(QMessageBox::Yes);
+
+    if (confirmBox.exec() != QMessageBox::Yes) return;
+
+
+
     const QModelIndexList indexes = selectionModel()->selectedRows();
 
     /* If no row was selected, return */

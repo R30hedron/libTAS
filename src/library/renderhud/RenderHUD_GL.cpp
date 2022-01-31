@@ -30,6 +30,7 @@ DECLARE_ORIG_POINTER(glGetIntegerv)
 DECLARE_ORIG_POINTER(glGenTextures)
 DECLARE_ORIG_POINTER(glDeleteTextures)
 DECLARE_ORIG_POINTER(glBindTexture)
+DECLARE_ORIG_POINTER(glBindSampler)
 DECLARE_ORIG_POINTER(glTexParameteri)
 DECLARE_ORIG_POINTER(glTexImage2D)
 DECLARE_ORIG_POINTER(glActiveTexture)
@@ -87,7 +88,7 @@ RenderHUD_GL::~RenderHUD_GL() {
     fini();
 }
 
-void RenderHUD_GL::init()
+void RenderHUD_GL::init(bool stateGLES)
 {
     if (texture == 0) {
         LINK_NAMESPACE(glGenTextures, "GL");
@@ -189,7 +190,26 @@ void RenderHUD_GL::init()
                 TexCoord = aTexCoord;
             }
         )";
-    	orig::glShaderSource(vertexShaderID, 1, &vertexShaderSource , NULL);
+
+        const char *vertexShaderSourceES = R"(
+            #version 100
+            attribute vec3 aPos;
+            attribute vec2 aTexCoord;
+            varying vec2 TexCoord;
+        
+            void main()
+            {
+                gl_Position = vec4(aPos, 1.0);
+                TexCoord = aTexCoord;
+            }
+        )";
+
+        if (stateGLES) {
+            orig::glShaderSource(vertexShaderID, 1, &vertexShaderSourceES , NULL);
+        }
+        else {
+            orig::glShaderSource(vertexShaderID, 1, &vertexShaderSource , NULL);            
+        }
     	orig::glCompileShader(vertexShaderID);
         
         
@@ -212,7 +232,26 @@ void RenderHUD_GL::init()
                 gl_FragColor = texture2D(ourTexture, TexCoord);
             }
         )";
-    	orig::glShaderSource(fragmentShaderID, 1, &fragmentShaderSource , NULL);
+
+        const char *fragmentShaderSourceES = R"(
+            #version 100
+            precision mediump float;
+            uniform sampler2D ourTexture;
+            varying vec2 TexCoord;
+        
+            void main()
+            {
+                gl_FragColor = texture2D(ourTexture, TexCoord);
+            }
+        )";
+        
+        if (stateGLES) {
+            orig::glShaderSource(fragmentShaderID, 1, &fragmentShaderSourceES , NULL);
+        }
+        else {
+            orig::glShaderSource(fragmentShaderID, 1, &fragmentShaderSource , NULL);
+        }
+
     	orig::glCompileShader(fragmentShaderID);
         
         /* Check the fragment shader */
@@ -273,13 +312,14 @@ void RenderHUD_GL::fini()
 
 void RenderHUD_GL::renderSurface(std::unique_ptr<SurfaceARGB> surf, int x, int y)
 {
-    RenderHUD_GL::init();
+    RenderHUD_GL::init(isGLES);
 
     LINK_NAMESPACE(glEnable, "GL");
     LINK_NAMESPACE(glDisable, "GL");
     LINK_NAMESPACE(glIsEnabled, "GL");
     LINK_NAMESPACE(glBlendFunc, "GL");
     LINK_NAMESPACE(glBindTexture, "GL");
+    LINK_NAMESPACE(glBindSampler, "GL");
     LINK_NAMESPACE(glTexImage2D, "GL");
     LINK_NAMESPACE(glTexParameteri, "GL");
     LINK_NAMESPACE(glUseProgram, "GL");
@@ -324,6 +364,8 @@ void RenderHUD_GL::renderSurface(std::unique_ptr<SurfaceARGB> surf, int x, int y
     orig::glBindTexture(GL_TEXTURE_2D, texture);
     if ((error = orig::glGetError()) != GL_NO_ERROR)
         debuglogstdio(LCF_WINDOW | LCF_OGL | LCF_ERROR, "glBindTexture failed with error %d", error);
+
+    orig::glBindSampler(0, 0);
 
     orig::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     orig::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);

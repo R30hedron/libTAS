@@ -17,12 +17,9 @@
     along with libTAS.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBTAS_TIMER_H_INCL
-#define LIBTAS_TIMER_H_INCL
+#ifndef LIBTAS_SDLTIMER_H_INCL
+#define LIBTAS_SDLTIMER_H_INCL
 
-#include <time.h>
-#include <unistd.h>
-// #include "../external/SDL.h"
 #include <SDL2/SDL.h>
 #include "../global.h"
 

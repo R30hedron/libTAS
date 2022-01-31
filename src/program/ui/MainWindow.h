@@ -31,8 +31,10 @@
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QComboBox>
+#include <QtWidgets/QToolButton>
 #include <QtCore/QElapsedTimer>
 #include <QtCore/QTimer>
+#include <QtGui/QCloseEvent>
 #include <forward_list>
 #include <string>
 
@@ -66,6 +68,9 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(Context* c);
     ~MainWindow();
+
+    /* Capture the user closing the game and show a "save your work?" dialog */
+    void closeEvent(QCloseEvent *event);
 
     std::thread game_thread;
     GameLoop *gameLoop;
@@ -123,6 +128,7 @@ public:
     QActionGroup *asyncGroup;
 
     QActionGroup *debugStateGroup;
+    QAction *sigintAction;
     QActionGroup *loggingOutputGroup;
     QActionGroup *loggingPrintGroup;
     QActionGroup *loggingExcludeGroup;
@@ -142,7 +148,7 @@ public:
 
     QComboBox *gamePath;
     QPushButton *browseGamePath;
-    QLineEdit *cmdOptions;
+    QComboBox *cmdOptions;
 
     QLineEdit *moviePath;
     QPushButton *browseMoviePath;
@@ -169,7 +175,9 @@ public:
     QSpinBox *initialTimeNsec;
 
     QPushButton *launchButton;
-    QPushButton *launchGdbButton;
+    QToolButton *launchGdbButton;
+    QAction *launchGdbAction;
+    QAction *launchLldbAction;
     QPushButton *stopButton;
 
     QGroupBox *movieBox;
@@ -236,7 +244,9 @@ private slots:
     /* Update framerate values */
     void updateFramerate();
 
-    void slotLaunch();
+    void slotLaunchGdb();
+    void slotLaunchLldb();
+    void slotLaunch(bool attach_gdb);
     void slotStop();
     void slotBrowseGamePath();
     void slotGamePathChanged();

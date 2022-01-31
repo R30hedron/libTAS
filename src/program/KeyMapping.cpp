@@ -48,6 +48,7 @@ KeyMapping::KeyMapping(void* c)
     hotkey_list.push_back({{SingleInput::IT_KEYBOARD, XK_Pause}, HOTKEY_PLAYPAUSE, "Play/Pause"});
     hotkey_list.push_back({{SingleInput::IT_KEYBOARD, XK_v}, HOTKEY_FRAMEADVANCE, "Frame Advance"});
     hotkey_list.push_back({{SingleInput::IT_KEYBOARD, XK_Tab}, HOTKEY_FASTFORWARD, "Fast-forward"});
+    hotkey_list.push_back({{SingleInput::IT_NONE, 0}, HOTKEY_TOGGLE_FASTFORWARD, "Toggle fast-forward"});
     hotkey_list.push_back({{SingleInput::IT_NONE, 0}, HOTKEY_READWRITE, "Toggle Read/Write"});
     hotkey_list.push_back({{SingleInput::IT_KEYBOARD, XK_F1 | XK_Shift_Flag}, HOTKEY_SAVESTATE1, "Save State 1"});
     hotkey_list.push_back({{SingleInput::IT_KEYBOARD, XK_F2 | XK_Shift_Flag}, HOTKEY_SAVESTATE2, "Save State 2"});
@@ -91,6 +92,13 @@ KeyMapping::KeyMapping(void* c)
     input_list[INPUTLIST_FLAG].push_back({SingleInput::IT_FLAG, SingleInput::FLAG_CONTROLLER2_REMOVED, "Joy2 Removed"});
     input_list[INPUTLIST_FLAG].push_back({SingleInput::IT_FLAG, SingleInput::FLAG_CONTROLLER3_REMOVED, "Joy3 Removed"});
     input_list[INPUTLIST_FLAG].push_back({SingleInput::IT_FLAG, SingleInput::FLAG_CONTROLLER4_REMOVED, "Joy4 Removed"});
+
+    /* Add mouse button mapping */
+    input_list[INPUTLIST_MOUSE].push_back({SingleInput::IT_POINTER_B1, 1, "Mouse button 1"});
+    input_list[INPUTLIST_MOUSE].push_back({SingleInput::IT_POINTER_B2, 1, "Mouse button 2"});
+    input_list[INPUTLIST_MOUSE].push_back({SingleInput::IT_POINTER_B3, 1, "Mouse button 3"});
+    input_list[INPUTLIST_MOUSE].push_back({SingleInput::IT_POINTER_B4, 1, "Mouse button 4"});
+    input_list[INPUTLIST_MOUSE].push_back({SingleInput::IT_POINTER_B5, 1, "Mouse button 5"});
 
     /* Add controller mapping */
     input_list[INPUTLIST_CONTROLLER].push_back({SingleInput::IT_CONTROLLER1_BUTTON_A, 1, "Joy1 A"});
@@ -164,11 +172,6 @@ KeyMapping::KeyMapping(void* c)
     input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_X, 1, "Mouse X coord"});
     input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_Y, 1, "Mouse Y coord"});
     input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_MODE, 1, "Mouse rel"});
-    input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_B1, 1, "Mouse button 1"});
-    input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_B2, 1, "Mouse button 2"});
-    input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_B3, 1, "Mouse button 3"});
-    input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_B4, 1, "Mouse button 4"});
-    input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_POINTER_B5, 1, "Mouse button 5"});
 
     /* Framerate mapping */
     input_list[INPUTLIST_HIDDEN].push_back({SingleInput::IT_FRAMERATE_NUM, 1, "Framerate num"});
