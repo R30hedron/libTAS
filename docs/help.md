@@ -9,6 +9,7 @@ what you were looking for, or if you would like more information, you can
 get help from the [Discord server](https://discord.gg/3MBVAzU).
 * [List of libTAS options](../guides/options)
 * [Running libTAS using WSL 2](../guides/wsl)
+* [Ram Watch and Ram Search](../guides/ramwatch)
 * [Lua usage and functions](../guides/lua)
 * [Moviefile format](../guides/format)
 * [Tech details](../guides/how)
